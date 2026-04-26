@@ -2,7 +2,5 @@ The following REFramework script allows you to modify the flashlight's intensity
 
 The script was created because the flashlight's illumination in Requiem is mediocre and felt inadequate. 
 This script allows you to modify both the flashlight's brightness and range, as well as volumetric scattering. 
-However, I haven't noticed any significant changes when modifying this value; I assume this is because I've been playing Requiem without many ambient effects.
-
 
 You can modify the maximum luminance and range values, as well as scattering; however, I do not recommend the latter, as it can negatively affect GPU performance and therefore the game.
