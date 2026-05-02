@@ -1,21 +1,66 @@
+-- ver 1.1.0 - added state machine to detect lighter vs flashlight based on native intensity values, with option to unlock lighter override for testing
+
 local is_hooked = false
 
--- global vars
-local config_scattering = 50.0
-local config_intensity = 8000.0
-local config_range = 30.0
+-- global configs
+local config_scattering = 50
+local config_intensity = 10000
+local config_range = 30
+
+-- state machine vars
+local last_stage_prefix = ""
+local light_mode = "Scanning..."
+local unlock_lighter = false
+local detected_base_intensity = 0.0
 
 re.on_draw_ui(function()
     imgui.text("Better Flashlight:")
     
-    local changed_scat, new_scat = imgui.slider_float("Volumetric Scattering", config_scattering, 0.0, 150.0)
+    local changed_scat, new_scat = imgui.slider_int("Volumetric Scattering", config_scattering, 0, 150)
     if changed_scat then config_scattering = new_scat end
 
-    local changed_int, new_int = imgui.slider_float("Intensity", config_intensity, 0.0, 100000.0)
+    local changed_int, new_int = imgui.slider_int("Intensity", config_intensity, 0, 100000)
     if changed_int then config_intensity = new_int end
 
-    local changed_range, new_range = imgui.slider_float("Distance", config_range, 10.0, 200.0)
+    local changed_range, new_range = imgui.slider_int("Distance", config_range, 10, 200)
     if changed_range then config_range = new_range end
+
+    imgui.spacing()
+
+    -- read stage to update state machine
+    local stage_manager = sdk.get_managed_singleton("app.EnvStageManager")
+    if stage_manager then
+        local current_stage = stage_manager:get_field("_CurrentStageName")
+        if current_stage ~= nil then
+            local stage_str = tostring(current_stage)
+            -- extract first 4 chars (e.g., "st30", "st40")
+            local current_prefix = string.sub(stage_str, 1, 4)
+            
+            -- reset scanner if map prefix changes
+            if current_prefix ~= last_stage_prefix then
+                light_mode = "Scanning..."
+                last_stage_prefix = current_prefix
+                detected_base_intensity = 0.0
+            end
+        end
+    end
+
+    -- ui status
+    imgui.text_colored("Current Zone Prefix: " .. last_stage_prefix, 0xFF00FFFF)
+    
+    if light_mode == "Scanning..." then
+        imgui.text_colored("Mode: Scanning base values...", 0xFF888888)
+    elseif light_mode == "Flashlight" then
+        imgui.text_colored("Mode: Tactical Flashlight (Active)", 0xFF00FF00)
+    elseif light_mode == "Lighter" then
+        imgui.text_colored("Mode: Lighter (Detected: " .. tostring(detected_base_intensity) .. ")", 0xFF00A5FF)
+    end
+
+    imgui.spacing()
+
+    -- lighter override lock
+    local changed_lock, new_lock = imgui.checkbox("Unlock Lighter Override", unlock_lighter)
+    if changed_lock then unlock_lighter = new_lock end
 
     imgui.spacing()
 
@@ -26,24 +71,47 @@ re.on_draw_ui(function()
 
             local method = t_flash:get_method("copyTo") 
             if method then
-                print("Searching flashlight")
                 sdk.hook(
                     method,
                     function(args)
                         local instance = sdk.to_managed_object(args[2])
                         if instance then
-                            instance:call("set_VolumetricScatteringIntensity", config_scattering)
-                            
                             local spot = instance:get_field("_SpotLightParam")
+                            
                             if spot then
-                                spot:set_field("_Intensity", config_intensity)
+                                -- state 1: scanning native value
+                                if light_mode == "Scanning..." then
+                                    local current_val = spot:get_field("_Intensity")
+                                    
+                                    -- ignore 0.0 to avoid false triggers on loading screens
+                                    if current_val and current_val > 0.0 then
+                                        detected_base_intensity = current_val
+                                        
+                                        if current_val > 10000.0 then
+                                            light_mode = "Flashlight"
+                                        else
+                                            light_mode = "Lighter"
+                                        end
+                                    end
+                                end
                                 
-                                -- Search for the field, if it doesn't exist, write to memory directly
-                                local success = pcall(function() spot:set_field("_ReferenceEffectiveRange", config_range) end)
+                                -- state 2: applying logic based on mode and lock
+                                local should_apply = false
                                 
-                                -- Memory inyection
-                                if not success then
-                                    spot:write_float(0xA8, config_range)
+                                if light_mode == "Flashlight" then
+                                    should_apply = true
+                                elseif light_mode == "Lighter" and unlock_lighter == true then
+                                    should_apply = true
+                                end
+                                
+                                if should_apply then
+                                    instance:call("set_VolumetricScatteringIntensity", config_scattering)
+                                    spot:set_field("_Intensity", config_intensity)
+                                    
+                                    local success = pcall(function() spot:set_field("_ReferenceEffectiveRange", config_range) end)
+                                    if not success then
+                                        spot:write_float(0xA8, config_range)
+                                    end
                                 end
                             end
                         end
@@ -51,11 +119,9 @@ re.on_draw_ui(function()
                     function(retval) return retval end
                 )
                 is_hooked = true
-            else
-                print("Error: Method not found.")
             end
         end
     else
-        imgui.text_colored("Status: Active", 0xFF00FF00)
+        imgui.text_colored("Status: Hooked", 0xFF00FF00)
     end
 end)
