@@ -1,11 +1,16 @@
--- ver 1.1.0 - added state machine to detect lighter vs flashlight based on native intensity values, with option to unlock lighter override for testing
+-- ver 1.1.0 - added state machine to detect lighter vs flashlight based on native intensity values, with option to unlock lighter override for testing, and a reset to defaults button
 
 local is_hooked = false
 
+-- default constants
+local DEFAULT_SCATTERING = 50
+local DEFAULT_INTENSITY = 10000
+local DEFAULT_RANGE = 30
+
 -- global configs
-local config_scattering = 50
-local config_intensity = 10000
-local config_range = 30
+local config_scattering = DEFAULT_SCATTERING
+local config_intensity = DEFAULT_INTENSITY
+local config_range = DEFAULT_RANGE
 
 -- state machine vars
 local last_stage_prefix = ""
@@ -24,6 +29,13 @@ re.on_draw_ui(function()
 
     local changed_range, new_range = imgui.slider_int("Distance", config_range, 10, 200)
     if changed_range then config_range = new_range end
+
+    -- reset button logic
+    if imgui.button("Reset to Default Values") then
+        config_scattering = DEFAULT_SCATTERING
+        config_intensity = DEFAULT_INTENSITY
+        config_range = DEFAULT_RANGE
+    end
 
     imgui.spacing()
 
@@ -87,7 +99,7 @@ re.on_draw_ui(function()
                                     if current_val and current_val > 0.0 then
                                         detected_base_intensity = current_val
                                         
-                                        if current_val > 10000.0 then
+                                        if current_val >= 10000.0 then
                                             light_mode = "Flashlight"
                                         else
                                             light_mode = "Lighter"
